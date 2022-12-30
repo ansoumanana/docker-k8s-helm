@@ -1,0 +1,27 @@
+dependencies:
+- name: banksystem-common
+  repository: file://../../banksystem-common
+  version: 0.1.0
+- name: zipkin
+  repository: file://../../banksystem-services/zipkin
+  version: 0.1.0
+- name: configserver
+  repository: file://../../banksystem-services/configserver
+  version: 0.1.0
+- name: eurekaserver
+  repository: file://../../banksystem-services/eurekaserver
+  version: 0.1.0
+- name: accounts
+  repository: file://../../banksystem-services/accounts
+  version: 0.1.0
+- name: cards
+  repository: file://../../banksystem-services/cards
+  version: 0.1.0
+- name: loans
+  repository: file://../../banksystem-services/loans
+  version: 0.1.0
+- name: gatewayserver
+  repository: file://../../banksystem-services/gatewayserver
+  version: 0.1.0
+digest: sha256:06b3cc42231c94abc5b0fec2471b056b98bec6507090d01b5798e542d3c4b77e
+generated: "2022-12-16T10:06:24.81844887+01:00"

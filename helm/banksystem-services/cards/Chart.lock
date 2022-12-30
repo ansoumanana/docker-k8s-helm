@@ -1,0 +1,6 @@
+dependencies:
+- name: banksystem-common
+  repository: file://../../banksystem-common
+  version: 0.1.0
+digest: sha256:835708e1b6b58a7bbdb916027ee4c0d1569276e18a9fc00344fb17d6f22b08fe
+generated: "2022-12-16T09:46:07.850485237+01:00"

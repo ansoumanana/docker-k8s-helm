@@ -1,0 +1,196 @@
+version: "3.8"
+services:
+  mysqldb:
+    image: mysql:latest
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: 'mysqldb'
+      MYSQL_ROOT_PASSWORD: 'root'
+    ports:
+      - "3306:3306"
+    expose:
+      - 3306
+    networks:
+      - banksystem-mysql-network
+
+  grafana:
+    image: "grafana/grafana:latest"
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=password
+    networks:
+      - banksystem-mysql-network
+    depends_on:
+      - prometheus
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      -  banksystem-mysql-network
+
+  zipkin:
+    image: openzipkin/zipkin
+    mem_reservation: 700m
+    ports:
+      - "9411:9411"
+    networks:
+      - banksystem-mysql-network
+
+
+  rabbitmq:
+    image: rabbitmq:3.8-management-alpine
+    container_name: "rabbitmq"
+    restart: unless-stopped
+    ports:
+      - 5672
+      - "15672:15672"
+    volumes:
+      - ~/.docker-conf/rabbitmq/data/:/var/lib/rabbitmq/
+      - ~/.docker-conf/rabbitmq/log/:/var/log/rabbitmq
+    environment:
+      RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+    networks:
+      - banksystem-mysql-network
+
+  configserver:
+    image: banksystem/configserver
+    restart: unless-stopped
+    mem_reservation: 700m
+    ports:
+      - "8070:8070"
+    networks:
+      - banksystem-mysql-network
+    environment:
+      SPRING_ZIPKIN_BASEURL: http://zipkin:9411/
+    depends_on:
+      - zipkin
+
+  eurekaserver:
+    image: banksystem/eurekaserver
+    restart: unless-stopped
+    mem_reservation: 700m
+    ports:
+      - "8090:8090"
+    networks:
+      - banksystem-mysql-network
+    environment:
+      SPRING_CONFIG_IMPORT: optional:configserver:http://configserver:8070/
+      SPRING_ZIPKIN_BASEURL: http://zipkin:9411/
+
+    depends_on:
+      - configserver
+      - rabbitmq
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 30s
+        max_attempts: 3
+        window: 120s
+
+  account_instance_1:
+      image: banksystem/account:latest
+      mem_reservation: 700m
+      ports:
+        - "8081:8081"
+      networks:
+        - banksystem-mysql-network
+      environment:
+        SPRING_PROFILES_ACTIVE : "prod"
+        SPRING_CONFIG_IMPORT: optional:configserver:http://configserver:8070/
+        SPRING_ZIPKIN_BASEURL: http://zipkin:9411/
+        EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eurekaserver:8090/eureka/
+      depends_on:
+        - mysqldb
+        - configserver
+        - eurekaserver
+        - rabbitmq
+      deploy:
+        restart_policy:
+          condition: on-failure
+          delay: 45s
+          max_attempts: 3
+          window: 120s
+
+  loans_instance_1:
+    image: banksystem/loans:latest
+    mem_reservation: 700m
+    ports:
+      - "7000:7000"
+    networks:
+      - banksystem-mysql-network
+    environment:
+      SPRING_PROFILES_ACTIVE : "prod"
+      SPRING_CONFIG_IMPORT: optional:configserver:http://configserver:8070/
+      SPRING_ZIPKIN_BASEURL: http://zipkin:9411/
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eurekaserver:8090/eureka/
+    depends_on:
+      - mysqldb
+      - configserver
+      - eurekaserver
+      - rabbitmq
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 35s
+        max_attempts: 3
+        window: 120s
+
+  cardsinstance_1:
+    image: banksystem/cards:latest
+    mem_reservation: 700m
+    ports:
+      - "9000:9000"
+    networks:
+      - banksystem-mysql-network
+    environment:
+      SPRING_PROFILES_ACTIVE : "prod"
+      SPRING_CONFIG_IMPORT: optional:configserver:http://configserver:8070/
+      SPRING_ZIPKIN_BASEURL: http://zipkin:9411/
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eurekaserver:8090/eureka/
+    depends_on:
+      - mysqldb
+      - configserver
+      - eurekaserver
+      - rabbitmq
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 45s
+        max_attempts: 3
+        window: 120s
+
+  gatewayserver:
+    image: banksystem/gatewayserver
+    mem_reservation: 700m
+    ports:
+      - "8091:8091"
+    networks:
+      - banksystem-mysql-network
+    environment:
+      SPRING_CONFIG_IMPORT: optional:configserver:http://configserver:8070/
+      SPRING_ZIPKIN_BASEURL: http://zipkin:9411/
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eurekaserver:8090/eureka/
+    depends_on:
+      - configserver
+      - eurekaserver
+      - account_instance_1
+      - loans_instance_1
+      - cardsinstance_1
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 50s
+        max_attempts: 3
+        window: 180s
+
+networks:
+  banksystem-mysql-network:
+    name: banksystem-mysql-network

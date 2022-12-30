@@ -1,0 +1,232 @@
+version: "3.8"
+services:
+  mysqldb:
+    image: mysql:latest
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: 'mysqldb'
+      MYSQL_ROOT_PASSWORD: 'root'
+      DB_USER: 'keycloak'
+      DB_PASSWORD: 'keycloak'
+    ports:
+      - "3306:3306"
+    expose:
+      - 3306
+    networks:
+      - banksystem-mysql-network
+  keycloack:
+    image: quay.io/keycloak/keycloak:latest
+    restart: unless-stopped
+    command:
+      - start-dev
+    environment:
+        DB_VENDOR: MYSQL
+        DB_ADDR: mysqldb
+        DB_DATABASE: mysqldb
+        DB_USER: keycloak
+        DB_PASSWORD: keycloak
+        KEYCLOAK_ADMIN: admin
+        KEYCLOAK_ADMIN_PASSWORD: admin
+        KEYCLOAK_USER: admin
+        KEYCLOAK_PASSWORD: admin
+    ports:
+      - "8080:8080"
+    expose:
+      - 8080
+    depends_on:
+      - mysqldb
+    networks:
+      - banksystem-mysql-network
+  grafana:
+    image: "grafana/grafana:latest"
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=password
+    networks:
+      - banksystem-mysql-network
+    depends_on:
+      - prometheus
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      -  banksystem-mysql-network
+
+  zipkin:
+    image: openzipkin/zipkin
+    mem_reservation: 700m
+    ports:
+      - "9411:9411"
+    networks:
+      - banksystem-mysql-network
+
+
+  rabbitmq:
+    image: rabbitmq:3.8-management-alpine
+    container_name: "rabbitmq"
+    restart: unless-stopped
+    ports:
+      - 5672
+      - "15672:15672"
+    volumes:
+      - ~/.docker-conf/rabbitmq/data/:/var/lib/rabbitmq/
+      - ~/.docker-conf/rabbitmq/log/:/var/log/rabbitmq
+    environment:
+      RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+    networks:
+      - banksystem-mysql-network
+
+  configserver:
+    image: banksystem/configserver
+    restart: unless-stopped
+    mem_reservation: 700m
+    ports:
+      - "8070:8070"
+    networks:
+      - banksystem-mysql-network
+    environment:
+      SPRING_ZIPKIN_BASEURL: http://zipkin:9411/
+    depends_on:
+      - zipkin
+
+  eurekaserver:
+    image: banksystem/eurekaserver
+    restart: unless-stopped
+    mem_reservation: 700m
+    ports:
+      - "8090:8090"
+    networks:
+      - banksystem-mysql-network
+    environment:
+      SPRING_CONFIG_IMPORT: optional:configserver:http://configserver:8070/
+      SPRING_ZIPKIN_BASEURL: http://zipkin:9411/
+
+    depends_on:
+      - configserver
+      - rabbitmq
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 30s
+        max_attempts: 3
+        window: 120s
+
+  accounts:
+    image: banksystem/account:latest
+    mem_reservation: 700m
+    ports:
+      - "8081:8081"
+    networks:
+      - banksystem-mysql-network
+    environment:
+      SPRING_PROFILES_ACTIVE : "prod"
+      SPRING_CONFIG_IMPORT: optional:configserver:http://configserver:8070/
+      SPRING_ZIPKIN_BASEURL: http://zipkin:9411/
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eurekaserver:8090/eureka/
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK-SET-URI: http://keycloack:8080/realms/master/protocol/openid-connect/certs
+
+    depends_on:
+      - mysqldb
+      - configserver
+      - eurekaserver
+      - rabbitmq
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 45s
+        max_attempts: 3
+        window: 120s
+
+  loans:
+    image: banksystem/loans:latest
+    mem_reservation: 700m
+    ports:
+      - "7000:7000"
+    networks:
+      - banksystem-mysql-network
+    environment:
+      SPRING_PROFILES_ACTIVE : "prod"
+      SPRING_CONFIG_IMPORT: optional:configserver:http://configserver:8070/
+      SPRING_ZIPKIN_BASEURL: http://zipkin:9411/
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eurekaserver:8090/eureka/
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK-SET-URI: http://keycloack:8080/realms/master/protocol/openid-connect/certs
+
+    depends_on:
+      - mysqldb
+      - configserver
+      - eurekaserver
+      - rabbitmq
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 35s
+        max_attempts: 3
+        window: 120s
+
+  cards:
+    image: banksystem/cards:latest
+    mem_reservation: 700m
+    ports:
+      - "9000:9000"
+    networks:
+      - banksystem-mysql-network
+    environment:
+      SPRING_PROFILES_ACTIVE : "prod"
+      SPRING_CONFIG_IMPORT: optional:configserver:http://configserver:8070/
+      SPRING_ZIPKIN_BASEURL: http://zipkin:9411/
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eurekaserver:8090/eureka/
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK-SET-URI: http://keycloack:8080/realms/master/protocol/openid-connect/certs
+
+    depends_on:
+      - mysqldb
+      - configserver
+      - eurekaserver
+      - rabbitmq
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 45s
+        max_attempts: 3
+        window: 120s
+
+  gatewayserver:
+    image: banksystem/gatewayserver
+    mem_reservation: 700m
+    ports:
+      - "8091:8091"
+    networks:
+      - banksystem-mysql-network
+    environment:
+      SPRING_CONFIG_IMPORT: optional:configserver:http://configserver:8070/
+      SPRING_ZIPKIN_BASEURL: http://zipkin:9411/
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eurekaserver:8090/eureka/
+      SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_KEYCLOAK_TOKEN-URI:  http://keycloack:8080/realms/master/protocol/openid-connect/token
+      SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_KEYCLOAK_AUTHORIZATION-URI:  http://keycloack:8080/realms/master/protocol/openid-connect/auth
+      SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_KEYCLOAK_USERINFO-URI: http://keycloack:8080/realms/master/protocol/openid-connect/userinfo
+      SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_BANKSYSTEM-GATEWAY_CLIENT-ID: banksystemgatewayui
+      SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_BANKSYSTEM-GATEWAY_CLIENT-SECRET: NFJFGGL4Fm6bWoc0FKhhS7dOUua2Yncx
+    depends_on:
+      - configserver
+      - eurekaserver
+      - accounts
+      - loans
+      - cards
+      - keycloack
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 50s
+        max_attempts: 3
+        window: 180s
+
+networks:
+  banksystem-mysql-network:
+    name: banksystem-mysql-network
